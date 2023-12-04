@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Chat Server M6</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+      /* Elements associated with creating a room and the room's themselves are hidden until a user enters a username */
+      #createRoom,
+      #createRoomPasswordDiv,
+      #displayChatRoomsDiv,
+      #room_template {
+        display: none;
+      }
+
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f5f5f5;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      .button {
+        display: inline-block;
+        padding: 10px 20px;
+        font-size: 14px;
+        font-weight: bold;
+        text-align: center;
+        text-decoration: none;
+        cursor: pointer;
+        border: none;
+        border-radius: 4px;
+        background-color: #007bff;
+        color: #fff;
+        transition: background-color 0.3s;
+      }
+
+      .button:hover {
+        background-color: #0056b3;
+      }
+
+      .room {
+        padding: 10px;
+        border: 1px solid #ccc;
+        margin-bottom: 10px;
+        border-radius: 4px;
+        background-color: #fff;
+      }
+
+      .room h2 {
+        margin: 0;
+        font-size: 20px;
+      }
+
+      .room p {
+        margin: 10px 0 0;
+        font-size: 16px;
+      }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      let activeUser = ""; //user is first promted to enter a username
+      let activeRoom = "Lobby"; //default room is always lobby
+      let activeRoomId = 1; //default room Id
+
+      var socketio = io.connect(); //connects to socketio
+
+      //handles all messages into the chat
+      socketio.on("message_to_client", function (data) {
+        //grabs the username and message from the data sent to the client
+        const username = data.username;
+        const message = data.message;
+        const chatlog = document.getElementById("chatlog");
+        const messageElement = document.createElement("div");
+        messageElement.innerText = `${username}: ${message}`;
+        //appends the message to the chatlog div
+        chatlog.appendChild(messageElement);
+      });
+
+      //handles updating the current room list
+      socketio.on("updated_room_list", function (data) {
+        console.log("Current room list: " + data);
+        let roomList = document.getElementById("room_list");
+        roomList.innerHTML = ""; // Clear the existing list before updating it
+
+        //for each room we create a div element with the roomname and append it to the room list
+        data.rooms.forEach(function (roomName) {
+          let roomElement = document.createElement("div");
+          roomElement.innerText = roomName; //update the room element's inner text to be the room name
+          roomList.appendChild(roomElement);
+        });
+      });
+
+      //function for creating a room
+      function createRoom() {
+        console.log("button clicked, creating room");
+        const showPasswordDiv = document.getElementById("addPassword");
+        const userInput = showPasswordDiv.value; //grabs the user input (yes or no) from the input form on if they want to eneter a password
+        let roomPassword = "";
+        //if the user input is 1, the user selected no, so password becoems none (no password by default) else
+        if (userInput == "1") {
+          console.log("No password chosen so roomPassword becomes none");
+          roomPassword = "none";
+        } else {
+          console.log(
+            "Password inputted, so roomPassword becoems the inputted password"
+          );
+          roomPassword = document.getElementById("createRoomPassword").value; //saves the inputted value as the roomPassword
+        }
+
+        let roomName = document.getElementById("room_input").value; //grabs the roomName from the input
+        let creator = activeUser;
+
+        let roomBackgroundColor = document.getElementById(
+          "roomBackgroundColor"
+        ).value; //grab the room color from the input in hex
+
+        console.log("Room name: " + roomName);
+        console.log("Creator name: " + creator);
+        console.log("Room password: " + roomPassword);
+        console.log("Room Background Color: " + roomBackgroundColor);
+
+        //event for creating room, sends the roomname, creator, password, and color
+        socketio.emit("create_room", {
+          roomName,
+          creator,
+          roomPassword,
+          roomBackgroundColor,
+        });
+
+        document.getElementById("room_input").value = ""; //clears the room name form
+        document.getElementById("createRoomPassword").value = ""; //clears the password
+      }
+
+      //this function creates the delete room button (only appears for the creator on)
+      function createDeleteRoomButton(roomObject) {
+        console.log("created delte chat rooom button");
+        console.log(roomObject);
+        const lastRoom = roomObject[roomObject.length - 1]; //most recently created room last
+        console.log("room object to delete");
+        console.log(lastRoom);
+        //Delete room button only appears for the creator of the room, and does not appear when joining the room id of 1(lobby)
+        if (lastRoom.creator == activeUser) {
+          const deleteRoomButtonDiv =
+            document.getElementById("deleteRoomButton"); //gets the delete room button deiv
+          deleteRoomButtonDiv.innerHTML = ""; //clears the button
+          const deleteRoomButton = document.createElement("button");
+          deleteRoomButton.dataset.room = lastRoom; //adds the room object
+          deleteRoomButton.dataset.id = lastRoom.id; //adds the room id to the button
+          console.log("created button");
+          deleteRoomButton.innerText = "Delete " + lastRoom.name + " !"; //sets the inner text of the delete room button
+
+          //adds an event listner to the delte room button
+          deleteRoomButton.addEventListener("click", function () {
+            console.log("delete da rooom!");
+            socketio.emit("delete_room", { room: lastRoom }); //sends the room to delete to the server
+          });
+
+          deleteRoomButtonDiv.appendChild(deleteRoomButton); //appends the delete room button to the delte room div
+        }
+      }
+
+      //logs a user in on the client side, this username will be used when chatting
+      function login() {
+        socketio.emit("displayRooms");
+        console.log("login");
+        const usernameDiv = document.getElementById("username"); //grabs the username from the input
+        const username = usernameDiv.value; //grabs the username from the input field
+        console.log("User logged in, username: " + username);
+        activeUser = username; //sets the activeUser global variable to the current username
+        usernameDiv.value = ""; //clears the username form
+        document.getElementById("createRoom").style.display = "block"; //displays the create room form
+        document.getElementById("displayChatRoomsDiv").style.display = "block"; //displays the chat rooms
+        document.getElementById("login").style.display = "none"; //Hides the login form
+        document.getElementById("welcomeMessage").innerHTML =
+          "Welcome, " + activeUser + " feel free to create or join a room!"; //displays the welcome message
+
+        //event listner for the showPassword form when creating a room
+        document
+          .getElementById("addPassword")
+          .addEventListener("change", showPasswordInput);
+        //todo: display chat rooms div here
+      }
+
+      //shows the password input field depending on what the user inputs into the field
+      function showPasswordInput() {
+        const showPasswordDiv = document.getElementById("addPassword");
+        const userInput = showPasswordDiv.value;
+        //if the user input is no (set to a value of 1) we hide the password input, else if the user inputs yes we show the input div
+        if (userInput == "1") {
+          console.log("No password chosen");
+          document.getElementById("createRoomPasswordDiv").style.display =
+            "none"; //hides the password input
+        } else {
+          console.log("password chosen");
+          document.getElementById("createRoomPasswordDiv").style.display =
+            "block"; //displays the password input
+        }
+      }
+
+      //event handling when a banned user tries to enter the room
+      //if the server sends a band status of true we do not allow admission into the room
+      socketio.on("ban_status", (data) => {
+        if (data.banned) {
+          document.getElementById("chatlog").innerHTML = ""; //resets the chatlog for the kicked user
+          //hide the room
+          document.getElementById("room_template").style.display = "none"; //hides the room
+          displayRooms(); //displays the available rooms
+          document.getElementById("createRoom").style.display = "block"; //displays the creat room form
+          //ban user
+          alert("You have been banned from this room");
+          return;
+        }
+      });
+
+      //displays the join chat rooms button
+      socketio.on("displayJoinChatRoomButtons", (data) => {
+        console.log("displaying chat rooms");
+        const joinChatRoomsButtonDiv = document.getElementById(
+          "joinChatRoomsButtonDiv"
+        );
+
+        //clear any existing buttons
+        joinChatRoomsButtonDiv.innerHTML = "<h1>List of All Chat Rooms<h1>";
+
+        roomsAsArray = Object.values(data); //the roomList is coming as an object, so this will grab the values and put them as an array
+        console.log(roomsAsArray);
+        //for each value in the array we want to show a join room button for it
+        roomsAsArray.forEach(function (room, i) {
+          console.log("individual room");
+          console.log(room); //ex of room[i]--> {creator:shangwe, password:none, etc}
+          const roomButton = document.createElement("button");
+          roomButton.dataset.id = room.id; //adds the room id to the button
+          roomButton.dataset.password = room.password; //adds the password to the buton dataset
+          console.log("created button");
+          roomButton.innerText = "Join " + room.name + " !";
+
+          //adds an event listner for each room
+          roomButton.addEventListener("click", function () {
+            let roomId = roomButton.dataset.id;
+            // socketio.emit("check_ban", { roomId, activeUser });
+            let password = roomButton.dataset.password;
+            if (password != "none") {
+              const userGuess = prompt(`Enter the room password!`);
+              if (userGuess != password) {
+                alert("Incorrect Room Password!");
+                return;
+              }
+            }
+
+            createDeleteRoomButton(data); //create the delete room button
+            //emits the join room event
+            socketio.emit("join_room", { roomId, activeUser });
+          });
+
+          joinChatRoomsButtonDiv.appendChild(roomButton); //adds the room button to the joinchatrooms div
+        });
+      });
+
+      //function for sending a message
+      function sendMessage() {
+        //grabs the message from the user input
+        let msg = document.getElementById("message_input").value;
+        //sends the message and current user to the server
+        socketio.emit("message_to_server", {
+          message: msg,
+          username: activeUser,
+        });
+        document.getElementById("message_input").value = ""; //clear the message box after sending a message
+      }
+
+      //event for handling a user joining a room
+      socketio.on("user_joined", function (data) {
+        document.getElementById("room_template").style.display = "block"; //displays the room
+        document.getElementById("joinChatRoomsButtonDiv").style.display =
+          "none"; //hides the join room buttons
+        document.getElementById("createRoom").style.display = "none";
+        const username = data.username;
+        // Display a message indicating that a user has joined the room
+        const chatlog = document.getElementById("chatlog");
+        //clear the chatlog before sending message
+        const messageElement = document.createElement("div");
+        messageElement.innerText = `${username} has joined the room.`;
+        chatlog.appendChild(messageElement);
+      });
+
+      //function fro handling a user leaving the room
+      function leaveRoom() {
+        socketio.emit("leave_room", { username: activeUser }); //leave the room on the server side
+        //clear the chat log
+        document.getElementById("chatlog").innerHTML = "";
+        //hide the room
+        document.getElementById("room_template").style.display = "none";
+        displayRooms();
+
+        document.getElementById("createRoom").style.display = "block"; //displays the creat room form
+      }
+
+      //function for dispalying al the rooms
+      function displayRooms() {
+        document.getElementById("joinChatRoomsButtonDiv").style.display =
+          "block"; //display the chat rooms button
+        socketio.emit("displayRooms"); //display chat room buttons
+      }
+
+      //user list will be buttons to select user to send private messages to
+      socketio.on("user_list", function (data) {
+        const room = data.room;
+        console.log("updating the user list");
+        //grabs the user list, kick user list, and ban user list divs
+        const userList = document.getElementById("user_list");
+        const kickUserList = document.getElementById("kick_user");
+        const banUserList = document.getElementById("ban_user");
+        userList.innerHTML = ""; //clear the userlist form
+        kickUserList.innerHTML = ""; // Clear the existing kick user buttons
+        banUserList.innerHTML = ""; //Clear the existing ban user buttons
+        console.log("recieved user list");
+        console.log(data.users);
+        console.log(typeof data.users);
+
+        data.users.forEach(function (user) {
+          //add each user name to the user list
+          userList.innerHTML += user + " ";
+        });
+
+        userList.innerHTML += "<br>";
+
+        //for each user we create a private message button
+        data.users.forEach(function (user) {
+          console.log(user); //user list
+          const userButton = document.createElement("button"); //creates private message button
+          userButton.dataset.username = user; //adds the username to the button dataset
+          console.log("created button");
+          userButton.innerText =
+            "Private Mesage " + userButton.dataset.username + " !"; //updating the inner html of the private message button
+          userList.appendChild(userButton); //adds the button
+
+          //private message event listner
+          userButton.addEventListener("click", function () {
+            //joining an actual chat room (might need to make this a function call to a seperate one)
+            console.log(userButton);
+            console.log("Username: " + userButton.dataset.username);
+            //private message the user
+            const targetUsername = userButton.dataset.username;
+            sendPrivateMessage(targetUsername, room); //calls the sendPrivateMessage function on button click
+          });
+
+          //if the room is not lobby, then add kick user buttons
+          if (room.name != "Lobby") {
+            if (activeUser == room.creator) {
+              console.log(
+                "active user is creator in none lobby so has kicking powers"
+              );
+              const kickUserButton = document.createElement("button"); //creates private message button
+              kickUserButton.dataset.username = user; //adds the username to the button dataset
+              kickUserButton.dataset.roomObject = room; //adds the room object to the kick user button
+              console.log("created kick button");
+              kickUserButton.innerText =
+                "Kick User: " + kickUserButton.dataset.username + " !";
+              kickUserList.appendChild(kickUserButton); //adds the button
+
+              //event listner for kicking user
+              //private message event listner
+              kickUserButton.addEventListener("click", function () {
+                console.log("kicking user!");
+                //joining an actual chat room (might need to make this a function call to a seperate one)
+                console.log(kickUserButton);
+
+                console.log("we will kick the user");
+                console.log(kickUserButton.dataset.username);
+                const userToBeKicked = kickUserButton.dataset.username;
+                const roomObject = kickUserButton.dataset.username;
+
+                kickUser(userToBeKicked, roomObject); //calls the kickUser Button
+              });
+
+              const banUserButton = document.createElement("button"); //creates private message button
+              banUserButton.dataset.username = user; //adds the username to the button dataset
+              banUserButton.dataset.roomObject = room; //adds the room object to the kick user button
+              console.log("created ban user button");
+              banUserButton.innerText =
+                "Ban User: " + banUserButton.dataset.username + " !";
+              banUserList.appendChild(banUserButton); //adds the button
+
+              //adds an event listenr for the ban user buton
+              banUserButton.addEventListener("click", function () {
+                console.log("banning user!");
+                //joining an actual chat room (might need to make this a function call to a seperate one)
+                console.log(banUserButton);
+
+                console.log("permanently banning the user");
+                console.log(banUserButton.dataset.username);
+                const userToBeBanned = banUserButton.dataset.username;
+                const roomObject = banUserButton.dataset.username;
+
+                banUser(userToBeBanned, roomObject); //call the bannUser Function
+              });
+            }
+          }
+        });
+
+        //after the full list is recieved append the buttons
+      });
+
+      //user left message (after pressing leave room button)
+      socketio.on("user_left", function (data) {
+        const username = data.user;
+        const chatlog = document.getElementById("chatlog");
+        const messageElement = document.createElement("div");
+        messageElement.innerText = `${username} has left the room.`;
+        chatlog.appendChild(messageElement);
+      });
+
+      //updates the room header after joining a room
+      socketio.on("room_header", function (data) {
+        console.log("updating room name???");
+        const roomname = data.name;
+        const color = data.color;
+        const roomDiv = document.getElementById("room_name");
+        roomDiv.innerHTML = `Current Room: ${roomname} `;
+        console.log("color");
+        document.getElementById("room_template").style.background = color; //updates the custom olor
+      });
+
+      //sends private message
+      function sendPrivateMessage(targetUsername, room) {
+        const currentRoom = room;
+        const msg = prompt(`Send a private message to ${targetUsername}`); //prompts the user to send private message
+        //ensures the message isn't null or blank
+        if (msg !== null && msg !== "") {
+          socketio.emit("private_message", {
+            message: msg,
+            from: activeUser,
+            to: targetUsername,
+            room: currentRoom,
+          });
+        }
+      }
+
+      //event for handling private messages (handles both for the sender and reciever)
+      socketio.on("private_message", function (data) {
+        if (data.sender) {
+          const username = data.from;
+          const message = data.message;
+          const chatlog = document.getElementById("chatlog");
+          const messageElement = document.createElement("div");
+          messageElement.innerText = `Private Message from ${username}: ${message}`;
+          chatlog.appendChild(messageElement);
+        } else {
+          const username = data.to;
+          const message = data.message;
+          const initial = data.user;
+          const chatlog = document.getElementById("chatlog");
+          const messageElement = document.createElement("div");
+          messageElement.innerText = `${activeUser}: [Private Message] to ${username} saying:  ${message}`;
+          chatlog.appendChild(messageElement);
+        }
+      });
+
+      //event for sending a custom message for kicking a user out of the room (handles for both the client and server)
+      socketio.on("kick_user_message", function (data) {
+        if (data.sender) {
+          console.log("inside the kick user message thingy");
+          const username = data.kickedUser;
+          const chatlog = document.getElementById("chatlog");
+          const kickElement = document.createElement("div");
+          kickElement.innerText = `${username} has been temporarily kicked from the room`;
+          chatlog.appendChild(kickElement);
+        } else {
+          //message to the user who was kicked
+          alert("You have been temporarily kicked from the room");
+          document.getElementById("chatlog").innerHTML = ""; //resets the chatlog for the kicked user
+          //hide the room
+          document.getElementById("room_template").style.display = "none"; //hides the room
+          displayRooms(); //displays the available rooms
+          document.getElementById("createRoom").style.display = "block"; //displays the creat room form
+        }
+      });
+
+      //event for handling banning a user from a room (handles both for the reciever of the ban and the other clients of the room )
+      socketio.on("ban_user_message", function (data) {
+        if (data.sender) {
+          console.log("inside the kick user message thingy");
+          const username = data.kickedUser;
+          const chatlog = document.getElementById("chatlog");
+          const kickElement = document.createElement("div");
+          kickElement.innerText = `${username} has been permanently banned from the room`;
+          chatlog.appendChild(kickElement);
+        } else {
+          //message to the user who was kicked
+          alert("You have been permanently banned from the room");
+          document.getElementById("chatlog").innerHTML = ""; //resets the chatlog for the kicked user
+          //hide the room
+          document.getElementById("room_template").style.display = "none"; //hides the room
+          displayRooms(); //displays the available rooms
+          document.getElementById("createRoom").style.display = "block"; //displays the creat room form
+        }
+      });
+
+      //this function handlestheevent of kicking a user from the chat room
+      function kickUser(userToBeKicked, roomObject) {
+        //sends teh user, room, current user, and ban length (temporary) to the server
+        socketio.emit("kick_user", {
+          user: userToBeKicked,
+          room: roomObject,
+          activeUser: activeUser,
+          banLength: "temporary", //temporary ban length
+        }); //display chat room buttons
+      }
+
+      //this funciton handles the event of banning (permanently) a user from the chat room
+      function banUser(userToBeBanned, roomObject) {
+        console.log("we made it to the permanent ban method");
+        //sends the kick user event to the server, sends the user, room , active user and a permaent ban length
+        socketio.emit("kick_user", {
+          user: userToBeBanned,
+          room: roomObject,
+          activeUser: activeUser,
+          banLength: "permanent", //permanent ban
+        }); //display chat room buttons
+      }
+
+      //handles the room deletion event
+      socketio.on("room_deleted", function () {
+        // Handle the room_deleted event
+        alert("The room has been deleted");
+        // You can replace the alert with any UI update or action you want to take.
+
+        //clear the chat log
+        document.getElementById("chatlog").innerHTML = "";
+        //hide the room
+        document.getElementById("room_template").style.display = "none";
+        displayRooms();
+
+        document.getElementById("createRoom").style.display = "block"; //displays the creat room form
+      });
+    </script>
+  </head>
+  <body>
+    <h1>Chat Room!</h1>
+
+    <!--Login-->
+    <div id="login">
+      <p>Login</p>
+      Enter a Username:
+      <input type="text" id="username" placeholder="Enter a username" />
+      <button onclick="login()">Login</button>
+    </div>
+    <div id="welcomeDiv"><p id="welcomeMessage"></p></div>
+    <br />
+
+    <div id="createRoom">
+      <p>Create a Room</p>
+      Enter a room name:
+      <input type="text" id="room_input" placeholder="Enter a room name" />
+      Add a password to the chat room?
+      <select name="addPassword" id="addPassword">
+        <option value="1">No</option>
+        <option value="2">Yes</option>
+      </select>
+      <div id="createRoomPasswordDiv">
+        Enter a room password:
+        (If you changed your mind about a password, simply select no or enter a password of none!)
+        <input type="password" id="createRoomPassword" placeholder="Password" />
+      </div>
+      Choose a room background color:
+      <input type="color" id="roomBackgroundColor" value="#33ccff" />
+      <button onclick="createRoom()">Create Room</button>
+    </div>
+
+    <br />
+
+    <div id="displayChatRoomsDiv">
+      <div id="joinChatRoomsButtonDiv">
+        <h1>List of All Chat Rooms</h1>
+        <!--This div will add a button joining the corresponding chat room ex: Join SportsChat-->
+      </div>
+
+      <!--This is a general chat room-->
+      <div id="room_template">
+        <h2 id="room_name">.</h2>
+        User List:
+        <!--Make the user lists buttons with userid and socketid so when a user clicks on it they have the option to send a privae message-->
+        <div id="user_list"></div>
+        <div id="kick_user"></div>
+        <div id="ban_user"></div>
+        <!--List of all user buttons with option to kick temporarily-->
+        Send Message: <input type="text" id="message_input" />
+        <button onclick="sendMessage()">Send</button> <br />
+        Chat Log:
+        <div id="chatlog"></div>
+        <br />
+        Leave Room:
+        <button onclick="leaveRoom()">Leave Room</button>
+        <div id="deleteRoomButton"></div>
+      </div>
+    </div>
+  </body>
+</html>
